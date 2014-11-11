@@ -28,6 +28,9 @@ public class Invoice extends RecurlyObject {
     @XmlElement(name = "account")
     private Account account;
 
+    @XmlElement(name = "subscription")
+    private String subscription;
+
     @XmlElement(name = "uuid")
     private String uuid;
 
@@ -75,6 +78,14 @@ public class Invoice extends RecurlyObject {
 
     public void setAccount(final Account account) {
         this.account = account;
+    }
+
+    public String getSubscription() {
+        return subscription;
+    }
+
+    public void setSubscription(final Object subscription) {
+        this.subscription = stringOrNull(subscription);
     }
 
     public String getUuid() {
@@ -178,6 +189,7 @@ public class Invoice extends RecurlyObject {
         final StringBuilder sb = new StringBuilder();
         sb.append("Invoice");
         sb.append("{account=").append(account);
+        sb.append(", subscription='").append(subscription).append('\'');
         sb.append(", uuid='").append(uuid).append('\'');
         sb.append(", state='").append(state).append('\'');
         sb.append(", invoiceNumber=").append(invoiceNumber);
