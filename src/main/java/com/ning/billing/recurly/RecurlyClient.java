@@ -18,10 +18,16 @@ package com.ning.billing.recurly;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Reader;
 import java.math.BigDecimal;
+import java.net.URL;
+import java.nio.charset.Charset;
 import java.util.NoSuchElementException;
+import java.util.Properties;
 import java.util.Scanner;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
 import javax.xml.bind.DatatypeConverter;
@@ -51,13 +57,21 @@ import com.ning.billing.recurly.model.Redemption;
 import com.ning.billing.recurly.model.RefundOption;
 import com.ning.billing.recurly.model.Subscription;
 import com.ning.billing.recurly.model.SubscriptionUpdate;
+import com.ning.billing.recurly.model.SubscriptionNotes;
 import com.ning.billing.recurly.model.Subscriptions;
 import com.ning.billing.recurly.model.Transaction;
 import com.ning.billing.recurly.model.Transactions;
 import com.ning.http.client.AsyncHttpClient;
 import com.ning.http.client.AsyncHttpClientConfig;
 import com.ning.http.client.Response;
+
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Objects;
+import com.google.common.base.StandardSystemProperty;
+import com.google.common.io.CharSource;
+import com.google.common.io.Resources;
+import com.google.common.net.HttpHeaders;
 
 public class RecurlyClient {
 
@@ -71,6 +85,11 @@ public class RecurlyClient {
 
     private static final String X_RECORDS_HEADER_NAME = "X-Records";
     private static final String LINK_HEADER_NAME = "Link";
+
+    private static final String GIT_PROPERTIES_FILE = "com/ning/billing/recurly/git.properties";
+    @VisibleForTesting
+    static final String GIT_COMMIT_ID_DESCRIBE_SHORT = "git.commit.id.describe-short";
+    private static final Pattern TAG_FROM_GIT_DESCRIBE_PATTERN = Pattern.compile("recurly-java-library-([0-9]*\\.[0-9]*\\.[0-9]*)(-[0-9]*)?");
 
     public static final String FETCH_RESOURCE = "/recurly_js/result";
 
@@ -103,19 +122,25 @@ public class RecurlyClient {
 
     // TODO: should we make it static?
     private final XmlMapper xmlMapper;
+    private final String userAgent;
 
     private final String key;
     private final String baseUrl;
     private AsyncHttpClient client;
-
+    
     public RecurlyClient(final String apiKey) {
-        this(apiKey, "api.recurly.com", 443, "v2");
+        this(apiKey, "api");
+    }
+
+    public RecurlyClient(final String apiKey, final String subDomain) {
+        this(apiKey, subDomain + ".recurly.com", 443, "v2");
     }
 
     public RecurlyClient(final String apiKey, final String host, final int port, final String version) {
         this.key = DatatypeConverter.printBase64Binary(apiKey.getBytes());
         this.baseUrl = String.format("https://%s:%d/%s", host, port, version);
         this.xmlMapper = RecurlyObject.newXmlMapper();
+        this.userAgent = buildUserAgent();
     }
 
     /**
@@ -251,12 +276,26 @@ public class RecurlyClient {
     }
 
     /**
+     * Preview a subscription
+     * <p/>
+     * Previews a subscription for an account.
+     *
+     * @param subscription Subscription object
+     * @return the newly created Subscription object on success, null otherwise
+     */
+    public Subscription previewSubscription(final Subscription subscription) {
+        return doPOST(Subscription.SUBSCRIPTION_RESOURCE
+                      + "/preview",
+                      subscription, Subscription.class);
+    }
+
+    /**
      * Get a particular {@link Subscription} by it's UUID
      * <p/>
-     * Returns information about a single account.
+     * Returns information about a single subscription.
      *
      * @param uuid UUID of the subscription to lookup
-     * @return Subscriptions for the specified user
+     * @return Subscription
      */
     public Subscription getSubscription(final String uuid) {
         return doGET(Subscriptions.SUBSCRIPTIONS_RESOURCE
@@ -276,7 +315,7 @@ public class RecurlyClient {
         return doPUT(Subscription.SUBSCRIPTION_RESOURCE + "/" + subscription.getUuid() + "/cancel",
                      subscription, Subscription.class);
     }
-    
+
     /**
      * Postpone a subscription
      * <p/>
@@ -286,7 +325,7 @@ public class RecurlyClient {
      * @return -?-
      */
     public Subscription postponeSubscription(final Subscription subscription, final DateTime renewaldate) {
-        return doPUT(Subscription.SUBSCRIPTION_RESOURCE + "/" + subscription.getUuid() + "/postpone?next_renewal_date="+renewaldate,
+        return doPUT(Subscription.SUBSCRIPTION_RESOURCE + "/" + subscription.getUuid() + "/postpone?next_renewal_date=" + renewaldate,
                      subscription, Subscription.class);
     }
 
@@ -316,9 +355,10 @@ public class RecurlyClient {
     /**
      * Update a particular {@link Subscription} by it's UUID
      * <p/>
-     * Returns information about a single account.
+     * Returns information about a single subscription.
      *
-     * @param uuid UUID of the subscription to update
+     * @param uuid               UUID of the subscription to update
+     * @param subscriptionUpdate subscriptionUpdate object
      * @return Subscription the updated subscription
      */
     public Subscription updateSubscription(final String uuid, final SubscriptionUpdate subscriptionUpdate) {
@@ -326,6 +366,36 @@ public class RecurlyClient {
                      + "/" + uuid,
                      subscriptionUpdate,
                      Subscription.class);
+    }
+
+    /**
+     * Preview an update to a particular {@link Subscription} by it's UUID
+     * <p/>
+     * Returns information about a single subscription.
+     *
+     * @param uuid UUID of the subscription to preview an update for
+     * @return Subscription the updated subscription preview
+     */
+    public Subscription updateSubscriptionPreview(final String uuid, final SubscriptionUpdate subscriptionUpdate) {
+        return doPOST(Subscriptions.SUBSCRIPTIONS_RESOURCE
+                      + "/" + uuid + "/preview",
+                      subscriptionUpdate,
+                      Subscription.class);
+    }
+    
+    
+    /**
+     * Update to a particular {@link Subscription}'s notes by it's UUID
+     * <p/>
+     * Returns information about a single subscription.
+     *
+     * @param uuid UUID of the subscription to preview an update for
+     * @param subscriptionNotes SubscriptionNotes object
+     * @return Subscription the updated subscription 
+     */
+    public Subscription updateSubscriptionNotes(final String uuid, final SubscriptionNotes subscriptionNotes) {
+      return doPUT(SubscriptionNotes.SUBSCRIPTION_RESOURCE + "/" + uuid + "/notes",
+                   subscriptionNotes, Subscription.class);
     }
 
     /**
@@ -465,6 +535,18 @@ public class RecurlyClient {
 
     ///////////////////////////////////////////////////////////////////////////
     // User invoices
+    
+    /**
+     * Lookup an invoice
+     * <p/>
+     * Returns the invoice
+     *
+     * @param invoiceId Recurly Invoice ID
+     * @return the invoice
+     */
+    public Invoice getInvoice(final Integer invoiceId) {
+        return doGET(Invoices.INVOICES_RESOURCE + "/" + invoiceId, Invoice.class);
+    }    
 
     /**
      * Lookup an account's invoices
@@ -477,6 +559,46 @@ public class RecurlyClient {
     public Invoices getAccountInvoices(final String accountCode) {
         return doGET(Accounts.ACCOUNTS_RESOURCE + "/" + accountCode + Invoices.INVOICES_RESOURCE,
                      Invoices.class);
+    }
+
+    /**
+     * Post an invoice: invoice pending charges on an account
+     * <p/>
+     * Returns an invoice
+     *
+     * @param accountCode
+     * @return the invoice that was generated on success, null otherwise
+     */
+    public Invoice postAccountInvoice(final String accountCode, final Invoice invoice) {
+        return doPOST(Accounts.ACCOUNTS_RESOURCE + "/" + accountCode + Invoices.INVOICES_RESOURCE, invoice, Invoice.class);
+    }
+
+    /**
+     * Mark an invoice as paid successfully - Recurly Enterprise Feature
+     *
+     * @param invoiceId Recurly Invoice ID
+     */
+    public Invoice markInvoiceSuccessful(final Integer invoiceId) {
+        return doPUT(Invoices.INVOICES_RESOURCE + "/" + invoiceId + "/mark_successful", null, Invoice.class);
+    }
+
+    /**
+     * Mark an invoice as failed collection
+     *
+     * @param invoiceId Recurly Invoice ID
+     */
+    public Invoice markInvoiceFailed(final Integer invoiceId) {
+        return doPUT(Invoices.INVOICES_RESOURCE + "/" + invoiceId + "/mark_failed", null, Invoice.class);
+    }
+
+    /**
+     * Enter an offline payment for a manual invoice (beta) - Recurly Enterprise Feature
+     *
+     * @param invoiceId Recurly Invoice ID
+     * @param payment   The external payment
+     */
+    public Transaction enterOfflinePayment(final Integer invoiceId, final Transaction payment) {
+        return doPOST(Invoices.INVOICES_RESOURCE + "/" + invoiceId + "/transactions", payment, Transaction.class);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -633,7 +755,7 @@ public class RecurlyClient {
      */
     public Redemption redeemCoupon(final String couponCode, final Redemption redemption) {
         return doPOST(Coupon.COUPON_RESOURCE + "/" + couponCode + Redemption.REDEEM_RESOURCE,
-                redemption, Redemption.class);
+                      redemption, Redemption.class);
     }
 
     /**
@@ -644,7 +766,7 @@ public class RecurlyClient {
      */
     public Redemption getCouponRedemptionByAccount(final String accountCode) {
         return doGET(Accounts.ACCOUNTS_RESOURCE + "/" + accountCode + Redemption.REDEMPTION_RESOURCE,
-                Redemption.class);
+                     Redemption.class);
     }
 
     /**
@@ -655,7 +777,7 @@ public class RecurlyClient {
      */
     public Redemption getCouponRedemptionByInvoice(final Integer invoiceNumber) {
         return doGET(Invoices.INVOICES_RESOURCE + "/" + invoiceNumber + Redemption.REDEMPTION_RESOURCE,
-                Redemption.class);
+                     Redemption.class);
     }
 
     /**
@@ -755,7 +877,12 @@ public class RecurlyClient {
     private <T> T doPUT(final String resource, final RecurlyObject payload, final Class<T> clazz) {
         final String xmlPayload;
         try {
-            xmlPayload = xmlMapper.writeValueAsString(payload);
+            if (payload != null) {
+                xmlPayload = xmlMapper.writeValueAsString(payload);
+            } else {
+                xmlPayload = null;
+            }
+
             if (debug()) {
                 log.info("Msg to Recurly API [PUT]:: URL : {}", baseUrl + resource);
                 log.info("Payload for [PUT]:: {}", xmlPayload);
@@ -802,6 +929,7 @@ public class RecurlyClient {
         final Response response = builder.addHeader("Authorization", "Basic " + key)
                                          .addHeader("Accept", "application/xml")
                                          .addHeader("Content-Type", "application/xml; charset=utf-8")
+                                         .addHeader(HttpHeaders.USER_AGENT, userAgent)
                                          .setBodyEncoding("UTF-8")
                                          .execute()
                                          .get();
@@ -898,7 +1026,49 @@ public class RecurlyClient {
         // Don't limit the number of connections per host
         // See https://github.com/ning/async-http-client/issues/issue/28
         final AsyncHttpClientConfig.Builder builder = new AsyncHttpClientConfig.Builder();
-        builder.setMaximumConnectionsPerHost(-1);
+        builder.setMaxConnectionsPerHost(-1);
         return new AsyncHttpClient(builder.build());
+    }
+
+    @VisibleForTesting
+    String getUserAgent() {
+        return userAgent;
+    }
+
+    private String buildUserAgent() {
+        final String defaultVersion = "0.0.0";
+        final String defaultJavaVersion = "0.0.0";
+
+        try {
+            final Properties gitRepositoryState = new Properties();
+            final URL resourceURL = Resources.getResource(GIT_PROPERTIES_FILE);
+            final CharSource charSource = Resources.asCharSource(resourceURL, Charset.forName("UTF-8"));
+
+            Reader reader = null;
+            try {
+                reader = charSource.openStream();
+                gitRepositoryState.load(reader);
+            } finally {
+                if (reader != null) {
+                    reader.close();
+                }
+            }
+
+            final String version = Objects.firstNonNull(getVersionFromGitRepositoryState(gitRepositoryState), defaultVersion);
+            final String javaVersion = Objects.firstNonNull(StandardSystemProperty.JAVA_VERSION.value(), defaultJavaVersion);
+            return String.format("KillBill/%s; %s", version, javaVersion);
+        } catch (final Exception e) {
+            return String.format("KillBill/%s; %s", defaultVersion, defaultJavaVersion);
+        }
+    }
+
+    @VisibleForTesting
+    String getVersionFromGitRepositoryState(final Properties gitRepositoryState) {
+        final String gitDescribe = gitRepositoryState.getProperty(GIT_COMMIT_ID_DESCRIBE_SHORT);
+        if (gitDescribe == null) {
+            return null;
+        }
+        final Matcher matcher = TAG_FROM_GIT_DESCRIBE_PATTERN.matcher(gitDescribe);
+        return matcher.find() ? matcher.group(1) : null;
     }
 }

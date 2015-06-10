@@ -1,9 +1,10 @@
 /*
  * Copyright 2010-2013 Ning, Inc.
+ * Copyright 2015 Pierre-Alexandre Meyer
  *
- * Ning licenses this file to you under the Apache License, version 2.0
- * (the "License"); you may not use this file except in compliance with the
- * License.  You may obtain a copy of the License at:
+ * Pierre-Alexandre Meyer licenses this file to you under the Apache License,
+ * version 2.0 (the "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at:
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -80,7 +81,7 @@ public class Coupon extends RecurlyObject {
     private Integer discountPercent;
 
     @XmlElement(name = "discount_in_cents")
-    private Integer discountInCents;
+    private RecurlyUnitCurrency discountInCents;
 
     @XmlElement(name = "state")
     private String state;
@@ -192,12 +193,12 @@ public class Coupon extends RecurlyObject {
         this.singleUse = booleanOrNull(singleUse);
     }
 
-    public Integer getDiscountInCents() {
+    public RecurlyUnitCurrency getDiscountInCents() {
         return discountInCents;
     }
 
     public void setDiscountInCents(final Object discountInCents) {
-        this.discountInCents = integerOrNull(discountInCents);
+        this.discountInCents = RecurlyUnitCurrency.build(discountInCents);
     }
 
     public Boolean getAppliesToAllPlans() {
